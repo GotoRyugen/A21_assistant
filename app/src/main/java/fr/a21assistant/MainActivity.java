@@ -124,7 +124,8 @@ public class MainActivity extends Activity {
         }
         if (shared == null || shared.trim().isEmpty()) return;
         pendingSharedText = shared.trim();
-        if (memoryReady) runOnUiThread(this::showSharedTextConfirmation);
+        // Show consent immediately; never process shared text automatically.
+        runOnUiThread(this::showSharedTextConfirmation);
     }
 
     private void showSharedTextConfirmation() {
