@@ -8,7 +8,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from mcp.server.fastmcp import FastMCP
 
@@ -93,6 +93,15 @@ def a21_cancel_command(command_id: str) -> dict:
 
 app = FastAPI(title="A21 secure relay", version="0.1.0")
 
+@app.middleware("http")
+async def protect_mcp(request: Request, call_next):
+    if request.url.path == "/mcp" or request.url.path.startswith("/mcp/"):
+        if not MCP_TOKEN or not hmac.compare_digest(
+                request.headers.get("authorization", ""), "Bearer " + MCP_TOKEN):
+            return __import__("fastapi").responses.JSONResponse(
+                status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 class PollResponse(BaseModel):
     command: Optional[dict] = None
 
@@ -133,4 +142,4 @@ def device_result(body: ResultBody, authorization: Optional[str] = Header(defaul
     return {"saved": True}
 
 # Streamable HTTP MCP endpoint at /mcp. The host must provide HTTPS.
-app.mount("/", mcp.streamable_http_app())
+app.mount("/mcp", mcp.streamable_http_app())
