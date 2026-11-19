@@ -72,7 +72,17 @@ public class MainActivity extends Activity {
         accessibility.setOnClickListener(v ->
             startActivity(new Intent("android.settings.ACCESSIBILITY_SETTINGS")));
 
-        Button relayConfig = new Button(this);\n        relayConfig.setText("Configurer le relais ChatGPT");\n        layout.addView(relayConfig);\n        relayConfig.setOnClickListener(v -> configureRelay());\n\n        Button relayPoll = new Button(this);\n        relayPoll.setText("Vérifier les commandes du relais");\n        layout.addView(relayPoll);\n        relayPoll.setOnClickListener(v -> pollRelay());\n\n        Button memory = new Button(this);
+        Button relayConfig = new Button(this);
+        relayConfig.setText("Configurer le relais ChatGPT");
+        layout.addView(relayConfig);
+        relayConfig.setOnClickListener(v -> configureRelay());
+
+        Button relayPoll = new Button(this);
+        relayPoll.setText("Vérifier les commandes du relais");
+        layout.addView(relayPoll);
+        relayPoll.setOnClickListener(v -> pollRelay());
+
+        Button memory = new Button(this);
         memory.setText("Vérifier la mémoire");
         layout.addView(memory);
         memory.setOnClickListener(v -> refreshMemoryStatus());
