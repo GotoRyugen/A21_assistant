@@ -25,3 +25,13 @@ Le serveur ne constitue pas à lui seul une liaison fonctionnelle : l'agent Andr
 
 ## État
 Prototype de relais ajouté au dépôt. Pas encore déployé, pas encore connecté à l'APK, et pas testé de bout en bout. La route MCP est exposée par le SDK MCP; vérifier la compatibilité de transport et d'authentification auprès de l'environnement ChatGPT cible avant publication.
+
+## Côté Android — état du client
+
+L'application contient maintenant un client HTTPS et deux commandes dans l'écran principal :
+- **Configurer le relais ChatGPT** : enregistrer l'URL HTTPS et le jeton propre à l'appareil dans les préférences privées de l'application.
+- **Vérifier les commandes du relais** : effectuer une vérification manuelle lorsque l'application est ouverte.
+
+Chaque commande reçue est validée (version, identifiant UUID, dates, liste blanche). Pour les actions d'ouverture des réglages, Android affiche une demande d'autorisation locale. Le téléphone renvoie ensuite le résultat au relais.
+
+Cette première intégration ne vérifie pas les commandes en arrière-plan et ne maintient pas une connexion permanente. Le relais n'est pas déployé : aucune URL ni aucun jeton réel ne sont encore disponibles. Ne saisis pas de secrets tant qu'un déploiement HTTPS de confiance n'a pas été préparé.
