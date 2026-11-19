@@ -4,6 +4,12 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.os.Bundle;
 import android.content.Intent;
+import android.net.Uri;
+import android.database.Cursor;
+import android.provider.OpenableColumns;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
 import android.provider.Settings;
@@ -28,6 +34,7 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private static final int SPEECH_REQUEST = 100;
+    private static final int MODEL_PICK_REQUEST = 101;
     private TextView status;
     private TextView memoryStatus;
     private TextToSpeech tts;
@@ -61,6 +68,11 @@ public class MainActivity extends Activity {
         subtitle.setTextColor(0xFFFFFFFF);
         subtitle.setPadding(0, 18, 0, 30);
         layout.addView(subtitle);
+
+        Button model = new Button(this);
+        model.setText("Importer un modèle GGUF");
+        layout.addView(model);
+        model.setOnClickListener(v -> chooseModelFile());
 
         Button voice = new Button(this);
         voice.setText("🎙 Parler à A21");
@@ -279,6 +291,51 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void chooseModelFile() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/octet-stream", "application/x-gguf"});
+        startActivityForResult(intent, MODEL_PICK_REQUEST);
+    }
+
+    private void importModel(Uri uri) {
+        worker.execute(() -> {
+            String name = "modele.gguf";
+            try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (index >= 0) name = cursor.getString(index);
+                }
+            } catch (Exception ignored) { }
+            if (name == null || !name.toLowerCase(Locale.ROOT).endsWith(".gguf")) {
+                runOnUiThread(() -> status.setText("Fichier refusé : sélectionne un fichier .gguf."));
+                return;
+            }
+            File destination = new File(getFilesDir(), "models/" + name);
+            try {
+                File parent = destination.getParentFile();
+                if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                    throw new IllegalStateException("Impossible de créer le dossier des modèles.");
+                }
+                try (InputStream input = getContentResolver().openInputStream(uri);
+                     FileOutputStream output = new FileOutputStream(destination)) {
+                    if (input == null) throw new IllegalStateException("Fichier illisible.");
+                    byte[] buffer = new byte[1024 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                }
+                final String importedName = name;
+                final long bytes = destination.length();
+                runOnUiThread(() -> status.setText("Modèle importé : " + importedName +
+                        " (" + android.text.format.Formatter.formatFileSize(this, bytes) +
+                        "). Le moteur IA GGUF n'est pas encore intégré."));
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("Échec de l'import : " + e.getMessage()));
+            }
+        });
+    }
+
     private void startVoiceInput() {
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -294,7 +351,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == SPEECH_REQUEST && resultCode == RESULT_OK && data != null) {
+        if (requestCode == MODEL_PICK_REQUEST && resultCode == RESULT_OK && data != null && data.getData() != null) {\n            importModel(data.getData());\n            return;\n        }\n        if (requestCode == SPEECH_REQUEST && resultCode == RESULT_OK && data != null) {
             ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (results != null && !results.isEmpty()) {
                 String command = results.get(0);
