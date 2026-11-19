@@ -8,7 +8,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request\nfrom fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from mcp.server.fastmcp import FastMCP
 
@@ -98,7 +98,7 @@ async def protect_mcp(request: Request, call_next):
     if request.url.path == "/mcp" or request.url.path.startswith("/mcp/"):
         if not MCP_TOKEN or not hmac.compare_digest(
                 request.headers.get("authorization", ""), "Bearer " + MCP_TOKEN):
-            return __import__("fastapi").responses.JSONResponse(
+            return JSONResponse(
                 status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
 
