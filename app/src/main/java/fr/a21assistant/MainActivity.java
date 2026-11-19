@@ -23,6 +23,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Locale;
+import java.security.SecureRandom;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -36,6 +37,7 @@ public class MainActivity extends Activity {
     private volatile boolean memoryReady = false;
     private android.content.SharedPreferences relayPrefs;
     private String pendingSharedText;
+    private A21LocalApiServer localApiServer;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -83,6 +85,16 @@ public class MainActivity extends Activity {
         relayPoll.setText("Vérifier les commandes du relais");
         layout.addView(relayPoll);
         relayPoll.setOnClickListener(v -> pollRelay());
+
+        Button localApi = new Button(this);
+        localApi.setText("Démarrer le serveur local sécurisé");
+        layout.addView(localApi);
+        localApi.setOnClickListener(v -> startLocalApi());
+
+        Button stopLocalApi = new Button(this);
+        stopLocalApi.setText("Arrêter le serveur local");
+        layout.addView(stopLocalApi);
+        stopLocalApi.setOnClickListener(v -> stopLocalApi());
 
         Button memory = new Button(this);
         memory.setText("Vérifier la mémoire");
@@ -141,6 +153,41 @@ public class MainActivity extends Activity {
                 worker.execute(() -> processVoiceCommand(received));
             })
             .show();
+    }
+
+    private void startLocalApi() {
+        if (localApiServer != null && localApiServer.isRunning()) {
+            status.setText("Le serveur local est déjà actif sur ce téléphone.");
+            return;
+        }
+        worker.execute(() -> {
+            try {
+                String token = relayPrefs.getString("local_api_token", "");
+                if (token.length() < 32) {
+                    byte[] random = new byte[32];
+                    new SecureRandom().nextBytes(random);
+                    StringBuilder hex = new StringBuilder();
+                    for (byte value : random) hex.append(String.format(Locale.US, "%02x", value & 0xff));
+                    token = hex.toString();
+                    relayPrefs.edit().putString("local_api_token", token).apply();
+                }
+                A21LocalApiServer server = new A21LocalApiServer(token);
+                server.start();
+                localApiServer = server;
+                final int port = server.getPort();
+                runOnUiThread(() -> status.setText(
+                        "Serveur local actif uniquement sur le téléphone (127.0.0.1:" + port + ")."));
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("Impossible de démarrer le serveur local : " + e.getMessage()));
+            }
+        });
+    }
+
+    private void stopLocalApi() {
+        A21LocalApiServer server = localApiServer;
+        if (server != null) server.stop();
+        localApiServer = null;
+        status.setText("Serveur local arrêté.");
     }
 
     private void configureRelay() {
