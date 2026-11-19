@@ -6,17 +6,29 @@ import android.content.Intent;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import com.chaquo.python.AndroidPlatform;
+import com.chaquo.python.PyObject;
+import com.chaquo.python.Python;
+
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private static final int SPEECH_REQUEST = 100;
     private TextView status;
+    private TextView memoryStatus;
     private TextToSpeech tts;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private PyObject memoryBridge;
+    private boolean memoryReady = false;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -37,7 +49,7 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Prototype Android — commandes vocales");
+        subtitle.setText("Assistant vocal — mémoire locale memoryaicm");
         subtitle.setTextSize(16);
         subtitle.setTextColor(0xFFFFFFFF);
         subtitle.setPadding(0, 18, 0, 30);
@@ -54,13 +66,68 @@ public class MainActivity extends Activity {
         accessibility.setOnClickListener(v ->
             startActivity(new Intent("android.settings.ACCESSIBILITY_SETTINGS")));
 
+        Button memory = new Button(this);
+        memory.setText("Vérifier la mémoire");
+        layout.addView(memory);
+        memory.setOnClickListener(v -> refreshMemoryStatus());
+
         status = new TextView(this);
         status.setText("Prêt. L'écoute démarre uniquement quand tu appuies sur le bouton.");
         status.setTextColor(0xFF55D6BE);
         status.setTextSize(16);
         status.setPadding(0, 28, 0, 0);
         layout.addView(status);
+
+        memoryStatus = new TextView(this);
+        memoryStatus.setText("Initialisation de la mémoire locale...");
+        memoryStatus.setTextColor(0xFFFFFFFF);
+        memoryStatus.setTextSize(14);
+        memoryStatus.setPadding(0, 18, 0, 0);
+        layout.addView(memoryStatus);
+
         setContentView(layout);
+        worker.execute(this::initializeMemory);
+    }
+
+    private void initializeMemory() {
+        try {
+            if (!Python.isStarted()) {
+                Python.start(new AndroidPlatform(getApplicationContext()));
+            }
+            memoryBridge = Python.getInstance().getModule("a21_memory_bridge");
+            String home = getFilesDir().getAbsolutePath() + "/memoryaicm";
+            String result = memoryBridge.callAttr("initialize", home).toString();
+            memoryReady = true;
+            runOnUiThread(() -> memoryStatus.setText("Mémoire locale active. " + statusSummary(result)));
+        } catch (Exception e) {
+            memoryReady = false;
+            runOnUiThread(() -> memoryStatus.setText("Mémoire indisponible : " + e.getMessage()));
+        }
+    }
+
+    private String statusSummary(String json) {
+        try {
+            JSONObject obj = new JSONObject(json);
+            return obj.optInt("facts_active", 0) + " souvenir(s) actif(s).";
+        } catch (Exception e) {
+            return "Prête.";
+        }
+    }
+
+    private void refreshMemoryStatus() {
+        worker.execute(() -> {
+            try {
+                if (!memoryReady || memoryBridge == null) {
+                    runOnUiThread(() -> memoryStatus.setText("La mémoire n'est pas encore prête."));
+                    return;
+                }
+                String result = memoryBridge.callAttr("status").toString();
+                String summary = statusSummary(result);
+                runOnUiThread(() -> memoryStatus.setText("Mémoire locale active. " + summary));
+            } catch (Exception e) {
+                runOnUiThread(() -> memoryStatus.setText("Erreur mémoire : " + e.getMessage()));
+            }
+        });
     }
 
     private void startVoiceInput() {
@@ -82,15 +149,38 @@ public class MainActivity extends Activity {
             ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (results != null && !results.isEmpty()) {
                 String command = results.get(0);
-                status.setText("Commande entendue : " + command
-                        + "\nLa connexion ChatGPT et l'exécution des commandes seront ajoutées ensuite.");
+                status.setText("Commande entendue : " + command + "\nEnregistrement dans la mémoire locale...");
                 if (tts != null) tts.speak("J'ai entendu : " + command,
                         TextToSpeech.QUEUE_FLUSH, null, "a21-confirm");
+
+                worker.execute(() -> {
+                    try {
+                        if (!memoryReady || memoryBridge == null) {
+                            runOnUiThread(() -> memoryStatus.setText("Mémoire en cours de démarrage. Réessaie dans un instant."));
+                            return;
+                        }
+                        String result = memoryBridge.callAttr("remember", command).toString();
+                        JSONObject obj = new JSONObject(result);
+                        String summary = obj.optString("summary", "Traitement terminé.");
+                        runOnUiThread(() -> {
+                            status.setText("Commande : " + command + "\nMémoire : " + summary);
+                            refreshMemoryStatus();
+                        });
+                    } catch (Exception e) {
+                        runOnUiThread(() -> memoryStatus.setText("Erreur mémoire : " + e.getMessage()));
+                    }
+                });
             }
         }
     }
 
     @Override protected void onDestroy() {
+        worker.execute(() -> {
+            try {
+                if (memoryBridge != null) memoryBridge.callAttr("close");
+            } catch (Exception ignored) { }
+        });
+        worker.shutdown();
         if (tts != null) { tts.stop(); tts.shutdown(); }
         super.onDestroy();
     }
