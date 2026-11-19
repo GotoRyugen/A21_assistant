@@ -1,6 +1,7 @@
 package fr.a21assistant;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.content.Intent;
 import android.speech.RecognizerIntent;
@@ -8,6 +9,8 @@ import android.speech.tts.TextToSpeech;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.EditText;
+import android.text.InputType;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -31,10 +34,11 @@ public class MainActivity extends Activity {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private PyObject memoryBridge;
     private volatile boolean memoryReady = false;
+    private android.content.SharedPreferences relayPrefs;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        tts = new TextToSpeech(this, result -> {
+        relayPrefs = getSharedPreferences("a21_relay", MODE_PRIVATE);\n        tts = new TextToSpeech(this, result -> {
             if (result == TextToSpeech.SUCCESS) tts.setLanguage(Locale.FRANCE);
         });
 
@@ -68,7 +72,7 @@ public class MainActivity extends Activity {
         accessibility.setOnClickListener(v ->
             startActivity(new Intent("android.settings.ACCESSIBILITY_SETTINGS")));
 
-        Button memory = new Button(this);
+        Button relayConfig = new Button(this);\n        relayConfig.setText("Configurer le relais ChatGPT");\n        layout.addView(relayConfig);\n        relayConfig.setOnClickListener(v -> configureRelay());\n\n        Button relayPoll = new Button(this);\n        relayPoll.setText("Vérifier les commandes du relais");\n        layout.addView(relayPoll);\n        relayPoll.setOnClickListener(v -> pollRelay());\n\n        Button memory = new Button(this);
         memory.setText("Vérifier la mémoire");
         layout.addView(memory);
         memory.setOnClickListener(v -> refreshMemoryStatus());
@@ -89,6 +93,138 @@ public class MainActivity extends Activity {
 
         setContentView(layout);
         worker.execute(this::initializeMemory);
+    }
+
+
+    private void configureRelay() {
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(32, 8, 32, 0);
+        EditText url = new EditText(this);
+        url.setSingleLine(true);
+        url.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
+        url.setHint("https://adresse-du-relais");
+        url.setText(relayPrefs.getString("url", ""));
+        fields.addView(url);
+        EditText token = new EditText(this);
+        token.setSingleLine(true);
+        token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        token.setHint("Jeton secret de l'appareil");
+        token.setText(relayPrefs.getString("device_token", ""));
+        fields.addView(token);
+        new AlertDialog.Builder(this)
+                .setTitle("Connexion au relais A21")
+                .setMessage("Ces informations seront conservées dans le stockage privé de l'application. Utilise uniquement une adresse HTTPS.")
+                .setView(fields)
+                .setNegativeButton("Annuler", null)
+                .setPositiveButton("Enregistrer", (dialog, which) -> {
+                    String endpoint = url.getText().toString().trim();
+                    String secret = token.getText().toString().trim();
+                    if (!endpoint.startsWith("https://") || secret.isEmpty()) {
+                        status.setText("Adresse HTTPS et jeton obligatoires.");
+                        return;
+                    }
+                    relayPrefs.edit().putString("url", endpoint)
+                            .putString("device_token", secret).apply();
+                    status.setText("Configuration du relais enregistrée sur ce téléphone.");
+                }).show();
+    }
+
+    private void pollRelay() {
+        String endpoint = relayPrefs.getString("url", "");
+        String secret = relayPrefs.getString("device_token", "");
+        if (endpoint.isEmpty() || secret.isEmpty()) {
+            status.setText("Configure d'abord le relais A21.");
+            configureRelay();
+            return;
+        }
+        status.setText("Vérification du relais…");
+        worker.execute(() -> {
+            try {
+                A21RelayClient client = new A21RelayClient(endpoint, secret);
+                JSONObject response = client.poll();
+                JSONObject command = response.optJSONObject("command");
+                if (command == null) {
+                    runOnUiThread(() -> status.setText("Relais joignable : aucune commande en attente."));
+                    return;
+                }
+                RemoteCommandPolicy.ValidatedCommand validated =
+                        RemoteCommandPolicy.validate(command.toString(), System.currentTimeMillis());
+                runOnUiThread(() -> handleRemoteCommand(client, validated));
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("Relais indisponible ou commande refusée : " + e.getMessage()));
+            }
+        });
+    }
+
+    private void handleRemoteCommand(A21RelayClient client,
+                                     RemoteCommandPolicy.ValidatedCommand command) {
+        if (command.action == RemoteCommandPolicy.Action.STATUS ||
+                command.action == RemoteCommandPolicy.Action.LIST_CAPABILITIES) {
+            worker.execute(() -> reportRemoteResult(client, command.id, "completed",
+                    command.action == RemoteCommandPolicy.Action.STATUS
+                            ? "A21 est ouvert et prêt." : "Réglages autorisés : Wi-Fi, Bluetooth, batterie, applications, paramètres."));
+            status.setText("Demande d'information reçue.");
+            return;
+        }
+        String label;
+        switch (command.action) {
+            case OPEN_WIFI: label = "les réglages Wi-Fi"; break;
+            case OPEN_BLUETOOTH: label = "les réglages Bluetooth"; break;
+            case OPEN_BATTERY: label = "les réglages de batterie"; break;
+            case OPEN_APPLICATIONS: label = "les réglages des applications"; break;
+            case OPEN_SETTINGS: label = "les paramètres Android"; break;
+            default:
+                worker.execute(() -> reportRemoteResult(client, command.id, "rejected", "Action non prise en charge."));
+                return;
+        }
+        if (command.expiresAt <= System.currentTimeMillis()) {
+            worker.execute(() -> reportRemoteResult(client, command.id, "rejected", "Commande expirée."));
+            status.setText("Commande expirée.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Autoriser une action distante ?")
+                .setMessage("ChatGPT demande à A21 d'ouvrir " + label + ".\n\nRien ne sera fait sans ton accord.")
+                .setNegativeButton("Refuser", (dialog, which) -> {
+                    worker.execute(() -> reportRemoteResult(client, command.id, "rejected", "Refus local."));
+                    status.setText("Commande refusée.");
+                })
+                .setPositiveButton("Autoriser", (dialog, which) -> {
+                    if (command.expiresAt <= System.currentTimeMillis()) {
+                        worker.execute(() -> reportRemoteResult(client, command.id, "rejected", "Commande expirée avant confirmation."));
+                        status.setText("Commande expirée.");
+                        return;
+                    }
+                    String action = androidAction(command.action);
+                    try {
+                        startActivity(new Intent(action));
+                        status.setText("Ouverture de " + label + ".");
+                        worker.execute(() -> reportRemoteResult(client, command.id, "completed", "Réglage ouvert après confirmation locale."));
+                    } catch (Exception e) {
+                        worker.execute(() -> reportRemoteResult(client, command.id, "failed", "Impossible d'ouvrir ce réglage."));
+                        status.setText("Impossible d'ouvrir " + label + ".");
+                    }
+                }).show();
+    }
+
+    private String androidAction(RemoteCommandPolicy.Action action) {
+        switch (action) {
+            case OPEN_WIFI: return Settings.ACTION_WIFI_SETTINGS;
+            case OPEN_BLUETOOTH: return Settings.ACTION_BLUETOOTH_SETTINGS;
+            case OPEN_BATTERY: return Settings.ACTION_BATTERY_SAVER_SETTINGS;
+            case OPEN_APPLICATIONS: return Settings.ACTION_APPLICATION_SETTINGS;
+            case OPEN_SETTINGS: return Settings.ACTION_SETTINGS;
+            default: throw new IllegalArgumentException("Action non autorisée.");
+        }
+    }
+
+    private void reportRemoteResult(A21RelayClient client, String id, String result, String message) {
+        try {
+            client.sendResult(id, result, message);
+        } catch (Exception e) {
+            runOnUiThread(() -> status.setText("Action traitée localement, mais résultat non transmis au relais."));
+        }
     }
 
     private void initializeMemory() {
