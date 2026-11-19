@@ -8,7 +8,8 @@ from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, Request\nfrom fastapi.responses import JSONResponse
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from mcp.server.fastmcp import FastMCP
 
