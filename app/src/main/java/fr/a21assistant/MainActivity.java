@@ -35,6 +35,7 @@ public class MainActivity extends Activity {
     private PyObject memoryBridge;
     private volatile boolean memoryReady = false;
     private android.content.SharedPreferences relayPrefs;
+    private String pendingSharedText;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -103,9 +104,44 @@ public class MainActivity extends Activity {
         layout.addView(memoryStatus);
 
         setContentView(layout);
+        captureSharedText(getIntent());
         worker.execute(this::initializeMemory);
     }
 
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        captureSharedText(intent);
+    }
+
+    private void captureSharedText(Intent intent) {
+        if (intent == null) return;
+        String shared = null;
+        if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
+            CharSequence value = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            if (value != null) shared = value.toString();
+        }
+        if (shared == null || shared.trim().isEmpty()) return;
+        pendingSharedText = shared.trim();
+        // Show consent immediately; never process shared text automatically.
+        runOnUiThread(this::showSharedTextConfirmation);
+    }
+
+    private void showSharedTextConfirmation() {
+        if (pendingSharedText == null || isFinishing()) return;
+        final String received = pendingSharedText;
+        pendingSharedText = null;
+        new AlertDialog.Builder(this)
+            .setTitle("Texte reçu — ChatGPT")
+            .setMessage("A21 a reçu ce texte :\n\n" + received + "\n\nVeux-tu le traiter comme une commande ?")
+            .setNegativeButton("Annuler", (dialog, which) -> status.setText("Texte ignoré."))
+            .setPositiveButton("Traiter", (dialog, which) -> {
+                status.setText("Commande reçue : " + received);
+                worker.execute(() -> processVoiceCommand(received));
+            })
+            .show();
+    }
 
     private void configureRelay() {
         LinearLayout fields = new LinearLayout(this);
@@ -247,7 +283,10 @@ public class MainActivity extends Activity {
             String home = getFilesDir().getAbsolutePath() + "/memoryaicm";
             String result = memoryBridge.callAttr("initialize", home).toString();
             memoryReady = true;
-            runOnUiThread(() -> memoryStatus.setText("Mémoire locale active. " + statusSummary(result)));
+            runOnUiThread(() -> {
+                memoryStatus.setText("Mémoire locale active. " + statusSummary(result));
+                if (pendingSharedText != null) showSharedTextConfirmation();
+            });
         } catch (Exception e) {
             memoryReady = false;
             runOnUiThread(() -> memoryStatus.setText("Mémoire indisponible : " + e.getMessage()));
