@@ -353,7 +353,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == MODEL_PICK_REQUEST && resultCode == RESULT_OK && data != null && data.getData() != null) {\n            importModel(data.getData());\n            return;\n        }\n        if (requestCode == SPEECH_REQUEST && resultCode == RESULT_OK && data != null) {
+        if (requestCode == MODEL_PICK_REQUEST && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            importModel(data.getData());
+            return;
+        }
+        if (requestCode == SPEECH_REQUEST && resultCode == RESULT_OK && data != null) {
             ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (results != null && !results.isEmpty()) {
                 String command = results.get(0);
