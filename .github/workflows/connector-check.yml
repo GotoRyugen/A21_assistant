@@ -1,0 +1,24 @@
+name: Connector checks
+
+on:
+  push:
+    paths:
+      - "connector/**"
+      - ".github/workflows/connector-check.yml"
+  pull_request:
+    paths:
+      - "connector/**"
+      - ".github/workflows/connector-check.yml"
+
+jobs:
+  python-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install connector dependencies
+        run: pip install -r connector/requirements.txt
+      - name: Compile Python source
+        run: python -m py_compile connector/server.py
