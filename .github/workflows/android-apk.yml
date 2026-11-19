@@ -3,7 +3,7 @@ name: Build A21 Assistant APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature/local-chatgpt-share]
+    branches: [main, feature/local-chatgpt-share, feature/android-embedded-https-server]
 
 permissions:
   contents: read
