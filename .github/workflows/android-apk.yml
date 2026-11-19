@@ -1,9 +1,9 @@
-name: Build A21 Assistant APK
+name: Build A21 Connect APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, a21-connect]
 
 permissions:
   contents: read
@@ -47,6 +47,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: A21-Assistant-debug-apk
+          name: A21-Connect-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
