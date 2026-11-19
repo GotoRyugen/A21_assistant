@@ -38,7 +38,8 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        relayPrefs = getSharedPreferences("a21_relay", MODE_PRIVATE);\n        tts = new TextToSpeech(this, result -> {
+        relayPrefs = getSharedPreferences("a21_relay", MODE_PRIVATE);
+        tts = new TextToSpeech(this, result -> {
             if (result == TextToSpeech.SUCCESS) tts.setLanguage(Locale.FRANCE);
         });
 
