@@ -14,6 +14,7 @@ import com.chaquo.python.android.AndroidPlatform;
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -28,7 +29,7 @@ public class MainActivity extends Activity {
     private TextToSpeech tts;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private PyObject memoryBridge;
-    private boolean memoryReady = false;
+    private volatile boolean memoryReady = false;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -72,7 +73,7 @@ public class MainActivity extends Activity {
         memory.setOnClickListener(v -> refreshMemoryStatus());
 
         status = new TextView(this);
-        status.setText("Prêt. L'écoute démarre uniquement quand tu appuies sur le bouton.");
+        status.setText("Prêt. Appuie sur Parler à A21 pour donner une commande.");
         status.setTextColor(0xFF55D6BE);
         status.setTextSize(16);
         status.setPadding(0, 28, 0, 0);
@@ -149,29 +150,72 @@ public class MainActivity extends Activity {
             ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (results != null && !results.isEmpty()) {
                 String command = results.get(0);
-                status.setText("Commande entendue : " + command + "\nEnregistrement dans la mémoire locale...");
-                if (tts != null) tts.speak("J'ai entendu : " + command,
-                        TextToSpeech.QUEUE_FLUSH, null, "a21-confirm");
-
-                worker.execute(() -> {
-                    try {
-                        if (!memoryReady || memoryBridge == null) {
-                            runOnUiThread(() -> memoryStatus.setText("Mémoire en cours de démarrage. Réessaie dans un instant."));
-                            return;
-                        }
-                        String result = memoryBridge.callAttr("remember", command).toString();
-                        JSONObject obj = new JSONObject(result);
-                        String summary = obj.optString("summary", "Traitement terminé.");
-                        runOnUiThread(() -> {
-                            status.setText("Commande : " + command + "\nMémoire : " + summary);
-                            refreshMemoryStatus();
-                        });
-                    } catch (Exception e) {
-                        runOnUiThread(() -> memoryStatus.setText("Erreur mémoire : " + e.getMessage()));
-                    }
-                });
+                status.setText("Commande entendue : " + command + "\nTraitement...");
+                worker.execute(() -> processVoiceCommand(command));
             }
         }
+    }
+
+    private void processVoiceCommand(String command) {
+        try {
+            if (!memoryReady || memoryBridge == null) {
+                runOnUiThread(() -> memoryStatus.setText("Mémoire en cours de démarrage. Réessaie dans un instant."));
+                return;
+            }
+            String normalized = command.trim().toLowerCase(Locale.FRANCE);
+            if (normalized.startsWith("rappelle") ||
+                    normalized.startsWith("que sais-tu sur") ||
+                    normalized.startsWith("qu'est-ce que tu sais sur")) {
+                String query = command.replaceFirst("(?i)^\\s*(rappelle-moi|rappelle|que sais-tu sur|qu'est-ce que tu sais sur)\\s*", "").trim();
+                if (query.isEmpty()) query = "souvenirs récents";
+                String json = memoryBridge.callAttr("recall", query).toString();
+                JSONObject obj = new JSONObject(json);
+                StringBuilder answer = new StringBuilder();
+                appendMemories(answer, obj.optJSONArray("notes"));
+                appendMemories(answer, obj.optJSONArray("preferences"));
+                String response = answer.length() == 0
+                        ? "Je n'ai pas trouvé de souvenir correspondant."
+                        : answer.toString();
+                showResponse("Souvenirs : " + response, response);
+            } else if (normalized.startsWith("oublie")) {
+                String query = command.replaceFirst("(?i)^\\s*oublie(-moi)?\\s*", "").trim();
+                if (query.isEmpty()) {
+                    showResponse("Dis : oublie suivi du souvenir à effacer.", "Précise le souvenir à oublier.");
+                    return;
+                }
+                String json = memoryBridge.callAttr("forget", query).toString();
+                JSONObject obj = new JSONObject(json);
+                String response = obj.optString("summary", "Demande d'oubli traitée.");
+                showResponse("Oubli : " + response, response);
+            } else {
+                String json = memoryBridge.callAttr("remember", command).toString();
+                JSONObject obj = new JSONObject(json);
+                String response = obj.optString("summary", "Souvenir enregistré.");
+                showResponse("Commande : " + command + "\nMémoire : " + response, "J'ai enregistré cette information.");
+            }
+            refreshMemoryStatus();
+        } catch (Exception e) {
+            runOnUiThread(() -> memoryStatus.setText("Erreur mémoire : " + e.getMessage()));
+        }
+    }
+
+    private void appendMemories(StringBuilder output, JSONArray items) {
+        if (items == null) return;
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item == null) continue;
+            String text = item.optString("text", "").trim();
+            if (text.isEmpty()) continue;
+            if (output.length() > 0) output.append("\n");
+            output.append("• ").append(text);
+        }
+    }
+
+    private void showResponse(String visibleText, String spokenText) {
+        runOnUiThread(() -> {
+            status.setText(visibleText);
+            if (tts != null) tts.speak(spokenText, TextToSpeech.QUEUE_FLUSH, null, "a21-response");
+        });
     }
 
     @Override protected void onDestroy() {
