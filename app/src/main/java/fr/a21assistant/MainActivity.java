@@ -312,6 +312,8 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> status.setText("Fichier refusé : sélectionne un fichier .gguf."));
                 return;
             }
+            name = name.replaceAll("[^A-Za-z0-9._-]", "_");
+            if (name.equals(".gguf") || name.equals("..gguf")) name = "modele.gguf";
             File destination = new File(getFilesDir(), "models/" + name);
             try {
                 File parent = destination.getParentFile();
