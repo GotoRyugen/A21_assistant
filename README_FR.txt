@@ -43,6 +43,14 @@ CONFIDENTIALITÉ ET LIMITES
 - Les commandes disponibles sont locales et limitées ; ce n'est pas encore
   un agent capable de comprendre et d'exécuter librement toutes les demandes.
 
+PLAN DU FUTUR CONNECTEUR CHATGPT
+- Le plan technique et les exigences de sécurité sont décrits dans
+  docs/CONNECTEUR_CHATGPT_A21.md.
+- Cette documentation ne signifie pas que le connecteur est déjà opérationnel.
+- La liaison nécessitera un service MCP HTTPS et un agent Android qui récupère
+  les commandes par connexion sortante ; la compatibilité dépendra aussi des
+  fonctions de connecteurs disponibles sur le compte ChatGPT utilisé.
+
 PROCHAINES ÉTAPES POSSIBLES
 1. Tester l'installation sur le Samsung et vérifier les commandes vocales.
 2. Ajouter des actions Android simples, une par une, avec confirmation visible
