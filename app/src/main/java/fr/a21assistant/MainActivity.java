@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.content.Intent;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -159,10 +160,60 @@ public class MainActivity extends Activity {
     private void processVoiceCommand(String command) {
         try {
             if (!memoryReady || memoryBridge == null) {
-                runOnUiThread(() -> memoryStatus.setText("Mémoire en cours de démarrage. Réessaie dans un instant."));
+                runOnUiThread(() -> memoryStatus.setText("La mémoire démarre encore. Réessaie dans un instant."));
                 return;
             }
             String normalized = command.trim().toLowerCase(Locale.FRANCE);
+
+            if (normalized.equals("aide") || normalized.equals("que peux-tu faire") ||
+                    normalized.equals("qu'est-ce que tu peux faire")) {
+                String help = "Je peux mémoriser une information, retrouver un souvenir, " +
+                        "ou ouvrir certains réglages Android. Essaie : « souviens-toi que… », " +
+                        "« rappelle-moi… », « ouvre le Wi-Fi », « ouvre le Bluetooth », " +
+                        "« ouvre les paramètres » ou « ouvre la batterie ».";
+                showResponse(help, help);
+                return;
+            }
+
+            String settingAction = null;
+            String settingLabel = null;
+            if (normalized.contains("ouvre") || normalized.contains("ouvrir") ||
+                    normalized.startsWith("va dans")) {
+                if (normalized.contains("wifi") || normalized.contains("wi-fi")) {
+                    settingAction = Settings.ACTION_WIFI_SETTINGS;
+                    settingLabel = "les réglages Wi-Fi";
+                } else if (normalized.contains("bluetooth")) {
+                    settingAction = Settings.ACTION_BLUETOOTH_SETTINGS;
+                    settingLabel = "les réglages Bluetooth";
+                } else if (normalized.contains("batterie")) {
+                    settingAction = Settings.ACTION_BATTERY_SAVER_SETTINGS;
+                    settingLabel = "les réglages de batterie";
+                } else if (normalized.contains("applications") || normalized.contains(" applis")) {
+                    settingAction = Settings.ACTION_APPLICATION_SETTINGS;
+                    settingLabel = "les réglages des applications";
+                } else if (normalized.contains("paramètres") || normalized.contains("parametres") ||
+                        normalized.contains("réglages") || normalized.contains("reglages")) {
+                    settingAction = Settings.ACTION_SETTINGS;
+                    settingLabel = "les paramètres Android";
+                }
+            }
+            if (settingAction != null) {
+                final String action = settingAction;
+                final String label = settingLabel;
+                runOnUiThread(() -> {
+                    try {
+                        Intent intent = new Intent(action);
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(intent);
+                        status.setText("Ouverture de " + label + ".");
+                        if (tts != null) tts.speak("J'ouvre " + label + ".", TextToSpeech.QUEUE_FLUSH, null, "a21-action");
+                    } catch (Exception e) {
+                        status.setText("Impossible d'ouvrir " + label + " sur cet appareil.");
+                    }
+                });
+                return;
+            }
+
             if (normalized.startsWith("rappelle") ||
                     normalized.startsWith("que sais-tu sur") ||
                     normalized.startsWith("qu'est-ce que tu sais sur")) {
@@ -188,14 +239,15 @@ public class MainActivity extends Activity {
                 String response = obj.optString("summary", "Demande d'oubli traitée.");
                 showResponse("Oubli : " + response, response);
             } else {
-                String json = memoryBridge.callAttr("remember", command).toString();
+                String memoryText = command.replaceFirst("(?i)^\\s*(souviens-toi que|souviens-toi|mémorise que|memorise que)\\s*", "").trim();
+                String json = memoryBridge.callAttr("remember", memoryText).toString();
                 JSONObject obj = new JSONObject(json);
                 String response = obj.optString("summary", "Souvenir enregistré.");
-                showResponse("Commande : " + command + "\nMémoire : " + response, "J'ai enregistré cette information.");
+                showResponse("Souvenir : " + response, "J'ai enregistré cette information.");
             }
             refreshMemoryStatus();
         } catch (Exception e) {
-            runOnUiThread(() -> memoryStatus.setText("Erreur mémoire : " + e.getMessage()));
+            runOnUiThread(() -> memoryStatus.setText("Erreur : " + e.getMessage()));
         }
     }
 
